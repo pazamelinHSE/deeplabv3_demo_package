@@ -1,0 +1,23 @@
+[tool.poetry]
+name = "deeplabv3-demo"
+version = "0.1.0"
+description = ""
+authors = ["None"]
+license = "MIT"
+readme = "README.md"
+packages = [{include = "deeplabv3_demo"}]
+
+[tool.poetry.dependencies]
+python = ">=3.10,<3.12"
+tensorflow = "^2.11.0"
+argparse = "^1.4.0"
+numpy = "^1.24.2"
+pillow = "^9.4.0"
+opencv-python = "^4.7.0.68"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+demo = "deeplabv3_demo.demo:run"
