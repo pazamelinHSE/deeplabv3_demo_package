@@ -27,3 +27,4 @@ $ demo --img <IMG-PATH>
 ## Uninstall the package
 ```console
 $ pip3 uninstall deeplabv3-demo
+
