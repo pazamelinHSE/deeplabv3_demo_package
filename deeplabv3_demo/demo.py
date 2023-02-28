@@ -1,6 +1,8 @@
 # Copyright (c) 2019 Katsuya Hyodo
 # https://github.com/PINTO0309/PINTO_model_zoo
 #
+# Copyright (c) 2023 Pavel Zamelin
+#
 # Use of this source code is governed by an MIT-style
 # license that can be found in the LICENSE file or at
 # https://opensource.org/licenses/MIT.
