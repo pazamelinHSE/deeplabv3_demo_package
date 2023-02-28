@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "deeplabv3-demo"
-version = "0.1.0"
+version = "0.2.0"
 description = ""
 authors = ["None"]
 license = "MIT"
@@ -15,9 +15,58 @@ numpy = "^1.24.2"
 pillow = "^9.4.0"
 opencv-python = "^4.7.0.68"
 
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.2.1"
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
-demo = "deeplabv3_demo.demo:run"
+demo = "deeplabv3_demo.demo:demo_entrypoint"
+
+[tool.black]
+target-version = ['py310', 'py311']
+line-length = 120
+include_trailing_comma = false
+
+# PyLint
+[tool.pylint.MAIN]
+
+# Specify a score threshold under which the program will exit with error.
+fail-under=10
+
+# Use multiple processes to speed up Pylint. Specifying 0 will auto-detect the
+# number of processors available to use, and will cap the count on Windows to
+# avoid hangs.
+jobs=0
+
+# Files or directories to be skipped. They should be base names, not paths.
+ignore=["dist", "resources", "tests"]
+
+# Discover python modules and packages in the file system subtree.
+recursive=true
+
+[tool.pylint.TYPECHECK]
+
+# List of members which are set dynamically and missed by pylint inference
+# system, and so shouldn't trigger E1101 when accessed. Python regular
+# expressions are accepted.
+generated-members= [
+    "cv2.*"
+]
+
+[tool.pylint.'MESSAGES CONTROL']
+# Disable the message, report, category or checker with the given id(s). You
+# can either give multiple identifier separated by comma (,) or put this option
+# multiple time (only on the command line, not in the configuration file where
+# it should appear only once).
+disable=["C0116", "C0114", "C0413", "R0914", "W0702", "E1101"]
+
+# pyproject.toml
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra -q -p no:warnings --verbose -color=yes"
+testpaths = [
+    "tests",
+]
