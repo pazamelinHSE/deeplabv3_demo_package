@@ -28,3 +28,8 @@ $ demo --img <IMG-PATH>
 ```console
 $ pip3 uninstall deeplabv3-demo
 
+## Building and running a docker image
+```console
+$ sudo docker build --tag demo-img .
+# sudo docker run docker-img
+```

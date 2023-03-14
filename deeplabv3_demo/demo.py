@@ -17,7 +17,10 @@ import numpy as np
 from PIL import Image
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
-from tensorflow.lite.python.interpreter import Interpreter
+try:
+    from tflite_runtime.interpreter import Interpreter
+except:
+    from tensorflow.lite.python.interpreter import Interpreter
 
 
 DEMO_RESOURCES_PATH = os.path.join(os.path.dirname(__file__), "resources")
@@ -43,99 +46,111 @@ def parse_args():
         help="Path to the image to process.",
     )
     parser.add_argument("--num_threads", type=int, default=1, help="Threads.")
-    parser.add_argument("--save_result", type=bool, default=False, help="Save the resulting image.")
+    parser.add_argument("--save_result", help="Save the resulting image.", action="store_true")
     parser.add_argument("--silent", help="No logs or image output.", action="store_true")
     args = parser.parse_args()
 
     return args
 
 
-def run(deep_model: str, img_path: str, num_threads: int, save_result: bool, silent: bool):
-    if silent:
-        logger = logging.getLogger()
-        logger.disabled = True
+class DemoRunner:
+    """
+    Class that imports a tflite model and runs its inference on provided images
+    """
 
-    logging.info(f"Processing {img_path} image with {deep_model} model ...")
+    def __init__(self, deep_model_path: str, num_threads: int, silent: bool):
+        # set up logger
+        self.silent = silent
+        if self.silent:
+            logger = logging.getLogger()
+            logger.disabled = True
 
-    # Get deeplab color palettes
-    resources_path = os.path.join(os.path.dirname(__file__), "resources")
-    palette_path = os.path.join(resources_path, "img", "colorpalette.png")
-    deeplab_palette = Image.open(palette_path).getpalette()
+        # load the model into a tflite Interpreter for inference
+        self.interpreter = Interpreter(model_path=deep_model_path)
+        try:
+            self.interpreter.set_num_threads(num_threads)
+        except:
+            msg = (
+                "The installed PythonAPI of Tensorflow/Tensorflow Lite runtime "
+                + "does not support Multi-Thread processing."
+            )
+            logging.warning(msg)
 
-    interpreter = Interpreter(model_path=deep_model)
-    try:
-        interpreter.set_num_threads(num_threads)
-    except:
-        logging.warning(
-            "The installed PythonAPI of Tensorflow/Tensorflow Lite runtime "
-            + "does not support Multi-Thread processing."
-        )
+        self.interpreter.allocate_tensors()
+        self.input_details = self.interpreter.get_input_details()[0]["index"]
+        self.deeplabv3_predictions = self.interpreter.get_output_details()[0]["index"]
 
-    interpreter.allocate_tensors()
-    input_details = interpreter.get_input_details()[0]["index"]
-    deeplabv3_predictions = interpreter.get_output_details()[0]["index"]
-    window_name = "deeplabv3-plus-demo"
+        # load deeplab color palettes
+        palette_path = os.path.join(DEMO_RESOURCES_PATH, "img", "colorpalette.png")
+        self.deeplab_palette = Image.open(palette_path).getpalette()
 
-    time_start = time.perf_counter()
+        # set output window name
+        self.window_name = "deeplabv3-plus-demo"
 
-    color_image = cv2.imread(img_path, cv2.IMREAD_UNCHANGED)
-    image_width, image_height, _ = color_image.shape
+    def _prepare_input_image(self, image):
+        # resize, convert and normalize the image to match model input
+        prepimg_deep = cv2.resize(image, (256, 256))
+        prepimg_deep = cv2.cvtColor(prepimg_deep, cv2.COLOR_BGR2RGB)
+        prepimg_deep = np.expand_dims(prepimg_deep, axis=0)
+        prepimg_deep = prepimg_deep.astype(np.float32)
+        cv2.normalize(prepimg_deep, prepimg_deep, -1, 1, cv2.NORM_MINMAX)
+        return prepimg_deep
 
-    # Normalization
-    prepimg_deep = cv2.resize(color_image, (256, 256))
-    prepimg_deep = cv2.cvtColor(prepimg_deep, cv2.COLOR_BGR2RGB)
-    prepimg_deep = np.expand_dims(prepimg_deep, axis=0)
-    prepimg_deep = prepimg_deep.astype(np.float32)
-    cv2.normalize(prepimg_deep, prepimg_deep, -1, 1, cv2.NORM_MINMAX)
+    def _get_output_image(self, input_image, predictions):
+        # get an output image with segmentation results
+        image_width, image_height, _ = input_image.shape
+        output_image = np.uint8(predictions)
+        output_image = cv2.resize(output_image, (image_height, image_width))
+        output_image = Image.fromarray(output_image, mode="P")
+        output_image.putpalette(self.deeplab_palette)
+        output_image = output_image.convert("RGB")
+        output_image = np.asarray(output_image)
+        output_image = cv2.cvtColor(output_image, cv2.COLOR_RGB2BGR)
+        output_image_gray = cv2.cvtColor(output_image, cv2.COLOR_RGB2GRAY)
+        number_of_segmented_pix = cv2.countNonZero(output_image_gray)
+        output_image = cv2.addWeighted(input_image, 1.0, output_image, 0.9, 0)
+        return output_image, number_of_segmented_pix
 
-    # Run model - DeeplabV3-plus
-    interpreter.set_tensor(input_details, prepimg_deep)
-    interpreter.invoke()
+    def get_pallete(self):
+        return self.deeplab_palette
 
-    # Get results
-    predictions = interpreter.get_tensor(deeplabv3_predictions)[0]
+    def process_image(self, input_image, save_result: bool):
+        time_start = time.perf_counter()
 
-    # Segmentation
-    outputimg = np.uint8(predictions)
-    outputimg = cv2.resize(outputimg, (image_height, image_width))
-    outputimg = Image.fromarray(outputimg, mode="P")
-    outputimg.putpalette(deeplab_palette)
-    outputimg = outputimg.convert("RGB")
-    outputimg = np.asarray(outputimg)
-    outputimg = cv2.cvtColor(outputimg, cv2.COLOR_RGB2BGR)
+        # prepare input image for the model
+        image_width, image_height, _ = input_image.shape
+        prepared_image = self._prepare_input_image(input_image)
 
-    time_end = time.perf_counter()
+        # run the model and get resulting tensor
+        self.interpreter.set_tensor(self.input_details, prepared_image)
+        self.interpreter.invoke()
+        predictions = self.interpreter.get_tensor(self.deeplabv3_predictions)[0]
 
-    outputimg_gray = cv2.cvtColor(outputimg, cv2.COLOR_RGB2GRAY)
-    number_of_segmented_pix = cv2.countNonZero(outputimg_gray)
+        # get resulting image
+        output_image, number_of_segmented_pix = self._get_output_image(input_image, predictions)
+        time_end = time.perf_counter()
 
-    imdraw = cv2.addWeighted(color_image, 1.0, outputimg, 0.9, 0)
-    if not silent:
-        if save_result:
-            cv2.imwrite("demo-result.jpg", imdraw)
-        else:
-            cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)
-            cv2.imshow(window_name, imdraw)
-            cv2.waitKey(0)
-            cv2.destroyAllWindows()
+        if not self.silent:
+            if save_result:
+                cv2.imwrite("demo-result.jpg", output_image)
+            else:
+                cv2.namedWindow(self.window_name, cv2.WINDOW_AUTOSIZE)
+                cv2.imshow(self.window_name, output_image)
+                cv2.waitKey(0)
+                cv2.destroyAllWindows()
 
-        print("")
-        print(f"Image dimensions: {image_height}x{image_width}")
-        print(f"Processing time: {time_end - time_start}")
-        print(f"Number of segmented pixels: {number_of_segmented_pix}")
+            print(f"Image dimensions: {image_height}x{image_width}")
+            print(f"Processing time: {time_end - time_start}")
+            print(f"Number of segmented pixels: {number_of_segmented_pix}")
 
-    return number_of_segmented_pix
+        return output_image, number_of_segmented_pix
 
 
 def demo_entrypoint():
     args = parse_args()
-    run(
-        deep_model=args.deep_model,
-        img_path=args.img,
-        num_threads=args.num_threads,
-        save_result=args.save_result,
-        silent=args.silent,
-    )
+    input_image = cv2.imread(args.img, cv2.IMREAD_UNCHANGED)
+    runner = DemoRunner(args.deep_model, args.num_threads, args.silent)
+    runner.process_image(input_image, args.save_result)
 
 
 if __name__ == "__main__":
